@@ -129,11 +129,6 @@ struct Args {
     #[structopt(long, env = "MZ_LOG_FILE", value_name = "PATH")]
     log_file: Option<String>,
 
-    /// How long to wait to scrape the server's prometheus metrics into
-    /// internal tables.
-    #[structopt(long, default_value = "1s", value_name = "DURATION", parse(try_from_str = parse_duration::parse))]
-    prometheus_sync_interval: Duration,
-
     // == Connection options.
     /// The address on which to listen for connections.
     #[structopt(
