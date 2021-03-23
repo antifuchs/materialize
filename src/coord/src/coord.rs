@@ -97,6 +97,7 @@ use crate::util::ClientTransmitter;
 mod arrangement_state;
 mod dataflow_builder;
 mod metrics;
+mod prometheus;
 
 #[derive(Debug)]
 pub enum Message {
@@ -3451,6 +3452,18 @@ pub async fn serve(
         let mut cacher = Cacher::new(cache_rx, cache_config.clone());
         tokio::spawn(async move { cacher.run().await });
         Some(cache_tx)
+    } else {
+        None
+    };
+
+    let _metrics_rx = if let Some(logging) = logging {
+        let (metric_tx, metric_rx) = mpsc::unbounded_channel();
+        let mut scraper = Scraper::new(
+            metric_tx,
+            logging.granularity,
+            prometheus::default_registry(),
+        );
+        Some(metric_rx)
     } else {
         None
     };
