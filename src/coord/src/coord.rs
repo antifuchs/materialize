@@ -3456,14 +3456,9 @@ pub async fn serve(
         None
     };
 
-    let _metrics_rx = if let Some(logging) = logging {
-        let (metric_tx, metric_rx) = mpsc::unbounded_channel();
-        let mut scraper = Scraper::new(
-            metric_tx,
-            logging.granularity,
-            prometheus::default_registry(),
-        );
-        Some(metric_rx)
+    let _metrics_scraper = if let Some(logging) = logging {
+        let mut scraper = Scraper::new(logging.granularity, prometheus::default_registry());
+        Some(scraper)
     } else {
         None
     };
