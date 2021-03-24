@@ -844,6 +844,7 @@ dependencies = [
  "interchange",
  "kafka-util",
  "log",
+ "prometheus",
  "regex",
  "repr",
  "rusoto_core",

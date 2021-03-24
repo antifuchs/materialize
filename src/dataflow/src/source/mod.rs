@@ -55,6 +55,7 @@ use crate::CacheMessage;
 mod file;
 mod kafka;
 mod kinesis;
+mod prometheus_registry;
 mod pubnub;
 mod s3;
 mod util;

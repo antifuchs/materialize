@@ -199,6 +199,8 @@ where
                     );
 
                     (ok_stream.as_collection(), capability)
+                } else if let ExternalSourceConnector::Prometheus(_) = connector {
+                    unimplemented!("Prometheus sources are not supported yet");
                 } else {
                     let ((ok_source, err_source), capability) = match connector {
                         ExternalSourceConnector::Kafka(_) => {
@@ -225,6 +227,7 @@ where
                         ExternalSourceConnector::AvroOcf(_) => unreachable!(),
                         ExternalSourceConnector::Postgres(_) => unreachable!(),
                         ExternalSourceConnector::PubNub(_) => unreachable!(),
+                        ExternalSourceConnector::Prometheus(_) => unreachable!(),
                     };
 
                     // Include any source errors.

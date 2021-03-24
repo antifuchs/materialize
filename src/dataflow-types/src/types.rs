@@ -537,6 +537,12 @@ pub enum Compression {
     None,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum PrometheusRegistry {
+    // The only source we support at the moment.
+    Global,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SourceConnector {
     External {
@@ -567,6 +573,7 @@ pub enum ExternalSourceConnector {
     S3(S3SourceConnector),
     Postgres(PostgresSourceConnector),
     PubNub(PubNubSourceConnector),
+    Prometheus(PrometheusSourceConnector),
 }
 
 impl ExternalSourceConnector {
@@ -589,6 +596,7 @@ impl ExternalSourceConnector {
             Self::S3(_) => vec![("mz_record".into(), ScalarType::Int64.nullable(false))],
             Self::Postgres(_) => vec![],
             Self::PubNub(_) => vec![],
+            Self::Prometheus(_) => vec![],
         }
     }
 
@@ -602,6 +610,7 @@ impl ExternalSourceConnector {
             ExternalSourceConnector::S3(_) => "s3",
             ExternalSourceConnector::Postgres(_) => "postgres",
             ExternalSourceConnector::PubNub(_) => "pubnub",
+            ExternalSourceConnector::Prometheus(_) => "prometheus",
         }
     }
 
@@ -723,6 +732,11 @@ pub struct S3SourceConnector {
     pub pattern: Option<Glob>,
     pub aws_info: aws::ConnectInfo,
     pub compression: Compression,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PrometheusSourceConnector {
+    pub registry: PrometheusRegistry,
 }
 
 /// A Source of Object Key names, the argument of the `OBJECTS FROM` clause

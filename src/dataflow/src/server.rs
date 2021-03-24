@@ -718,6 +718,10 @@ where
                             );
                             None
                         }
+                        (ExternalSourceConnector::Prometheus(_), _) => {
+                            log::error!("Prometheus sources not supported yet");
+                            None
+                        }
                     }
                 } else {
                     log::debug!(
