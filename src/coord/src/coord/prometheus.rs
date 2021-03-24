@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use prometheus::{
-    proto::{Metric, MetricFamily, MetricType},
+    proto::{Metric, MetricType},
     Registry,
 };
 use tokio::time;
@@ -10,21 +10,21 @@ use super::Coordinator;
 
 /// Scrapes the prometheus registry in a regular interval and sends back a [`Batch`] of metric data
 /// that can be inserted into a table.
-pub struct Scraper<'a> {
+pub struct Scraper {
     interval: Duration,
-    registry: &'a Registry,
+    registry: Registry,
     // TODO: global ID for insertions
 }
 
-struct Reading {
+pub struct Reading {
     name: String,
     kind: MetricType,
     labels: Vec<(String, String)>,
     value: f64,
 }
 
-fn convert_metrics_to_rows<M: IntoIterator<Item = Metric>>(
-    name: String,
+fn convert_metrics_to_rows<'a, M: IntoIterator<Item = &'a Metric>>(
+    name: &str,
     kind: MetricType,
     metrics: M,
 ) -> Vec<Reading> {
@@ -39,7 +39,7 @@ fn convert_metrics_to_rows<M: IntoIterator<Item = Metric>>(
                 .collect::<Vec<(String, String)>>();
             match kind {
                 COUNTER => vec![Reading {
-                    name,
+                    name: name.to_owned(),
                     kind,
                     labels,
                     value: m.get_counter().get_value(),
@@ -51,27 +51,20 @@ fn convert_metrics_to_rows<M: IntoIterator<Item = Metric>>(
         .collect()
 }
 
-impl<'a> Scraper<'a> {
-    pub fn new(interval: Duration, registry: &'a Registry) -> Self {
+impl Scraper {
+    pub fn new(interval: Duration, registry: &Registry) -> Self {
+        let registry = registry.clone();
         Scraper { interval, registry }
     }
 
-    /// Run forever: Scrape the metrics registry once per interval, inserting metrics.
-    pub async fn run(&mut self, coord: &Coordinator) {
-        loop {
-            // TODO: come up with an exit condition?
-
-            let metric_fams = self.registry.gather();
-            let rows = metric_fams.into_iter().flat_map(
-                |MetricFamily {
-                     name,
-                     help,
-                     field_type,
-                     metric,
-                 }| { convert_metrics_to_rows(name, field_type, metric) },
-            );
-
-            time::sleep(self.interval).await;
-        }
+    /// Scrape the metrics registry once per interval, returning Reading values.
+    pub async fn scrape(&mut self) -> Vec<Reading> {
+        self.registry
+            .gather()
+            .into_iter()
+            .flat_map(|mf| {
+                convert_metrics_to_rows(mf.get_name(), mf.get_field_type(), mf.get_metric())
+            })
+            .collect()
     }
 }

@@ -35,8 +35,11 @@ use futures::stream::{self, StreamExt};
 use rand::Rng;
 use timely::communication::WorkerGuards;
 use timely::progress::{Antichain, ChangeBatch, Timestamp as _};
-use tokio::runtime::{Handle as TokioHandle, Runtime};
 use tokio::sync::{mpsc, watch};
+use tokio::{
+    runtime::{Handle as TokioHandle, Runtime},
+    task,
+};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use build_info::BuildInfo;
@@ -71,6 +74,7 @@ use storage::Message as PersistedMessage;
 use transform::Optimizer;
 
 use self::arrangement_state::{ArrangementFrontiers, Frontiers};
+use self::prometheus::Scraper;
 use crate::cache::{CacheConfig, Cacher};
 use crate::catalog::builtin::{
     BUILTINS, MZ_ARRAY_TYPES, MZ_AVRO_OCF_SINKS, MZ_BASE_TYPES, MZ_COLUMNS, MZ_DATABASES,
@@ -163,6 +167,7 @@ pub struct Coordinator {
     worker_guards: WorkerGuards<()>,
     worker_txs: Vec<crossbeam_channel::Sender<SequencedCommand>>,
     optimizer: Optimizer,
+    metrics_scraper: Option<Scraper>,
     catalog: Catalog,
     symbiosis: Option<symbiosis::Postgres>,
     /// Maps (global Id of arrangement) -> (frontier information)
@@ -3455,9 +3460,8 @@ pub async fn serve(
     } else {
         None
     };
-
-    let _metrics_scraper = if let Some(logging) = logging {
-        let mut scraper = Scraper::new(logging.granularity, prometheus::default_registry());
+    let metrics_scraper = if let Some(logging) = &logging {
+        let mut scraper = Scraper::new(logging.granularity, ::prometheus::default_registry());
         Some(scraper)
     } else {
         None
@@ -3511,6 +3515,7 @@ pub async fn serve(
     let mut coord = Coordinator {
         worker_guards,
         worker_txs,
+        metrics_scraper,
         optimizer: Default::default(),
         catalog,
         symbiosis,
