@@ -1,71 +1,55 @@
-use std::sync::mpsc::Receiver;
+use async_trait::async_trait;
+use dataflow_types::{PrometheusRegistry, PrometheusSourceConnector, SourceError};
+use prometheus::proto::MetricType;
+use repr::{Datum, RowPacker};
 
-use anyhow::Error;
-use dataflow_types::{ExternalSourceConnector, PrometheusRegistry, PrometheusSourceConnector};
-use expr::SourceInstanceId;
-use prometheus::Registry;
-
-use super::{SourceConstructor, SourceInfo};
-
-type Out = Vec<u8>;
-struct InternalMessage(Out);
+use super::{SimpleSource, Timestamper};
 
 /// Information required to load data from a Prometheus registry.
 pub struct PrometheusSourceInfo {
     /// The prometheus registry
-    registry: Registry,
-    //id: SourceInstanceId,
-    //receiver_stream: Receiver<Result<InternalMessage, Error>>,
+    connector: PrometheusSourceConnector,
 }
 
-impl SourceConstructor<Vec<u8>> for PrometheusSourceInfo {
-    fn new(
-        source_name: String,
-        source_id: SourceInstanceId,
-        active: bool,
-        worker_id: usize,
-        worker_count: usize,
-        logger: Option<crate::logging::materialized::Logger>,
-        consumer_activator: timely::scheduling::SyncActivator,
-        connector: dataflow_types::ExternalSourceConnector,
-        consistency_info: &mut super::ConsistencyInfo,
-        encoding: dataflow_types::DataEncoding,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized + SourceInfo<Vec<u8>>,
-    {
-        match connector {
-            ExternalSourceConnector::Prometheus(PrometheusSourceConnector {
-                registry: PrometheusRegistry::Global,
-            }) => (),
-            _ => {
-                panic!("Prometheus can only import from the global registry for now.");
-            }
+impl PrometheusSourceInfo {
+    pub fn new(connector: PrometheusSourceConnector) -> Self {
+        Self { connector }
+    }
+}
+
+#[async_trait]
+impl SimpleSource for PrometheusSourceInfo {
+    async fn start(mut self, timestamper: &Timestamper) -> Result<(), SourceError> {
+        let mut packer = RowPacker::new();
+        let registry = match self.connector.registry {
+            PrometheusRegistry::Global => prometheus::default_registry(),
         };
-        Ok(PrometheusSourceInfo {
-            registry: prometheus::default_registry().clone(),
-        })
-    }
-}
-
-impl SourceInfo<Vec<u8>> for PrometheusSourceInfo {
-    fn ensure_has_partition(
-        &mut self,
-        consistency_info: &mut super::ConsistencyInfo,
-        pid: expr::PartitionId,
-    ) {
-        todo!()
-    }
-
-    fn update_partition_count(
-        &mut self,
-        consistency_info: &mut super::ConsistencyInfo,
-        partition_count: i32,
-    ) {
-        todo!()
-    }
-
-    fn get_next_message(&mut self) -> Result<super::NextMessage<Vec<u8>>, Error> {
-        todo!()
+        loop {
+            tokio::time::sleep(self.connector.poll_interval).await;
+            let tx = timestamper.start_tx().await;
+            let reading = registry.gather();
+            for family in reading.into_iter() {
+                let name = family.get_name();
+                for metric in family.get_metric().into_iter() {
+                    let labels = metric
+                        .get_label()
+                        .into_iter()
+                        .map(|pair| (pair.get_name(), Datum::from(pair.get_value())));
+                    match family.get_field_type() {
+                        MetricType::COUNTER => {
+                            packer.push(Datum::from("counter"));
+                            packer.push(Datum::from(name));
+                            packer.push_dict(labels);
+                            tx.insert(packer.finish_and_reuse())
+                                .await
+                                .map_err(|e| SourceError::FileIO(e.to_string()))?;
+                        }
+                        _ => {
+                            todo!("need more metric types")
+                        }
+                    }
+                }
+            }
+        }
     }
 }

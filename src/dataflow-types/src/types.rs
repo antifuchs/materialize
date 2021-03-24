@@ -737,6 +737,7 @@ pub struct S3SourceConnector {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PrometheusSourceConnector {
     pub registry: PrometheusRegistry,
+    pub poll_interval: Duration,
 }
 
 /// A Source of Object Key names, the argument of the `OBJECTS FROM` clause
