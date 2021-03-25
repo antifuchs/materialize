@@ -6,19 +6,20 @@ use repr::{Datum, RowPacker};
 use super::{SimpleSource, Timestamper};
 
 /// Information required to load data from a Prometheus registry.
-pub struct PrometheusSourceInfo {
+pub struct PrometheusSourceReader {
     /// The prometheus registry
     connector: PrometheusSourceConnector,
 }
 
-impl PrometheusSourceInfo {
+impl PrometheusSourceReader {
+    /// Constructs a new prometheus source that gathers metrics from a registry.
     pub fn new(connector: PrometheusSourceConnector) -> Self {
         Self { connector }
     }
 }
 
 #[async_trait]
-impl SimpleSource for PrometheusSourceInfo {
+impl SimpleSource for PrometheusSourceReader {
     async fn start(mut self, timestamper: &Timestamper) -> Result<(), SourceError> {
         let mut packer = RowPacker::new();
         let registry = match self.connector.registry {
@@ -45,7 +46,7 @@ impl SimpleSource for PrometheusSourceInfo {
                                 .map_err(|e| SourceError::FileIO(e.to_string()))?;
                         }
                         _ => {
-                            todo!("need more metric types")
+                            // todo!("need more metric types")
                         }
                     }
                 }

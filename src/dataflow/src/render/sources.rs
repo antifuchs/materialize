@@ -34,8 +34,8 @@ use crate::render::RenderState;
 use crate::server::LocalInput;
 use crate::source::SourceConfig;
 use crate::source::{
-    self, FileSourceReader, KafkaSourceReader, KinesisSourceReader, PubNubSourceReader,
-    S3SourceReader,
+    self, FileSourceReader, KafkaSourceReader, KinesisSourceReader, PrometheusSourceReader,
+    PubNubSourceReader, S3SourceReader,
 };
 
 impl<'g, G> Context<Child<'g, G, G::Timestamp>, MirRelationExpr, Row, Timestamp>
@@ -199,8 +199,20 @@ where
                     );
 
                     (ok_stream.as_collection(), capability)
-                } else if let ExternalSourceConnector::Prometheus(_) = connector {
-                    unimplemented!("Prometheus sources are not supported yet");
+                } else if let ExternalSourceConnector::Prometheus(connector) = connector {
+                    let source = PrometheusSourceReader::new(connector);
+
+                    let ((ok_stream, err_stream), capability) =
+                        source::create_source_simple(source_config, source);
+
+                    error_collections.push(
+                        err_stream
+                            .map(DataflowError::SourceError)
+                            .pass_through("source-errors")
+                            .as_collection(),
+                    );
+
+                    (ok_stream.as_collection(), capability)
                 } else {
                     let ((ok_source, err_source), capability) = match connector {
                         ExternalSourceConnector::Kafka(_) => {

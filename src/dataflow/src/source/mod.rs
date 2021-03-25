@@ -68,6 +68,7 @@ pub use file::FileReadStyle;
 pub use file::FileSourceReader;
 pub use kafka::KafkaSourceReader;
 pub use kinesis::KinesisSourceReader;
+pub use prometheus_registry::PrometheusSourceReader;
 pub use pubnub::PubNubSourceReader;
 pub use s3::S3SourceReader;
 

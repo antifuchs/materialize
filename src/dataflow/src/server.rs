@@ -719,7 +719,9 @@ where
                             None
                         }
                         (ExternalSourceConnector::Prometheus(_), _) => {
-                            log::error!("Prometheus sources not supported yet");
+                            log::debug!(
+                                "PubNub sources do not communicate with the timestamper thread"
+                            );
                             None
                         }
                     }
