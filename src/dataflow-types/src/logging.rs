@@ -186,16 +186,8 @@ impl LogVariant {
                 .with_column("metric", ScalarType::String.nullable(false))
                 .with_column("time", ScalarType::Timestamp.nullable(false))
                 .with_column("labels", ScalarType::Jsonb.nullable(false))
-                .with_column("sum", ScalarType::Jsonb.nullable(false))
-                .with_column("count", ScalarType::Jsonb.nullable(false))
-                .with_column(
-                    "bounds",
-                    ScalarType::Array(Box::new(ScalarType::Float64)).nullable(false),
-                )
-                .with_column(
-                    "counts",
-                    ScalarType::Array(Box::new(ScalarType::Int64)).nullable(false),
-                )
+                .with_column("bound", ScalarType::Float64.nullable(false))
+                .with_column("count", ScalarType::Int64.nullable(false))
                 .with_key(vec![0, 1, 2]),
 
             LogVariant::Materialized(MaterializedLog::MetricValues) => RelationDesc::empty()

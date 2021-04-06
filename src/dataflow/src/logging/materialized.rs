@@ -21,7 +21,7 @@ use timely::logging::WorkerIdentifier;
 use super::{LogVariant, MaterializedLog};
 use crate::arrangement::KeysValsHandle;
 use expr::{GlobalId, SourceInstanceId};
-use repr::{adt::array::ArrayDimension, Datum, Row, Timestamp};
+use repr::{Datum, Row, Timestamp};
 
 /// Type alias for logging of materialized events.
 pub type Logger = timely::logging_core::Logger<MaterializedEvent, WorkerIdentifier>;
@@ -124,10 +124,6 @@ pub enum MetricValue {
     Value(f64),
     /// A prometheus histogram as a set of values
     Histogram {
-        /// The total sum of observed values.
-        sum: f64,
-        /// The total count of observed events.
-        total_count: i64,
         /// The upper bounds of the histogram buckets (cumulative).
         bounds: Vec<f64>,
         /// The count of events in each histogram bucket.
@@ -402,59 +398,53 @@ pub fn construct<A: Allocate>(
                                         .expect("Couldn't convert timestamps");
                                 let mut row_packer = Row::default();
                                 for metric in metrics {
+                                    let meta = metric.meta;
+
                                     for reading in metric.readings {
                                         let labels = reading.labels.iter().map(|(name, value)| {
                                             (name.as_str(), Datum::from(value.as_str()))
                                         });
-                                        let (row, session) = match reading.value {
+                                        match reading.value {
                                             MetricValue::Value(v) => {
-                                                row_packer
-                                                    .push(Datum::from(metric.meta.name.as_str()));
+                                                row_packer.push(Datum::from(meta.name.as_str()));
                                                 row_packer.push(Datum::from(chrono_timestamp));
                                                 row_packer.push_dict(labels);
                                                 row_packer.push(Datum::from(v));
-                                                (
-                                                    row_packer.finish_and_reuse(),
-                                                    &mut metrics_session,
-                                                )
+                                                let row = row_packer.finish_and_reuse();
+                                                metrics_session.give((row.clone(), time_ms, 1));
+                                                metrics_session.give((
+                                                    row,
+                                                    time_ms + retain_for,
+                                                    -1,
+                                                ));
                                             }
-                                            MetricValue::Histogram {
-                                                sum,
-                                                total_count,
-                                                bounds,
-                                                counts,
-                                            } => {
-                                                let dims = &[ArrayDimension {
-                                                    lower_bound: 0,
-                                                    length: bounds.len(),
-                                                }];
-                                                row_packer
-                                                    .push(Datum::from(metric.meta.name.as_str()));
-                                                row_packer.push(Datum::from(chrono_timestamp));
-                                                row_packer.push_dict(labels);
-                                                row_packer.push(Datum::from(sum));
-                                                row_packer.push(Datum::from(total_count));
-                                                let bounds = bounds.into_iter().map(Datum::from);
-                                                row_packer.push_array(dims, bounds).expect(
-                                                    "Mismatch in histogram array dimensions",
-                                                );
-                                                let counts = counts.into_iter().map(Datum::Int64);
-                                                row_packer.push_array(dims, counts).expect(
-                                                    "Mismatch in histogram array dimensions",
-                                                );
-                                                (
-                                                    row_packer.finish_and_reuse(),
-                                                    &mut metrics_histos_session,
-                                                )
-                                            }
+                                            MetricValue::Histogram { bounds, counts } => bounds
+                                                .iter()
+                                                .zip(counts.iter())
+                                                .for_each(|(&bound, &count)| {
+                                                    row_packer
+                                                        .push(Datum::from(meta.name.as_str()));
+                                                    row_packer.push(Datum::from(chrono_timestamp));
+                                                    row_packer.push_dict(labels.clone());
+                                                    row_packer.push(Datum::from(bound));
+                                                    row_packer.push(Datum::from(count));
+                                                    let row = row_packer.finish_and_reuse();
+                                                    metrics_histos_session.give((
+                                                        row.clone(),
+                                                        time_ms,
+                                                        1,
+                                                    ));
+                                                    metrics_histos_session.give((
+                                                        row,
+                                                        time_ms + retain_for,
+                                                        -1,
+                                                    ));
+                                                }),
                                         };
-                                        session.give((row.clone(), time_ms, 1));
-                                        session.give((row, time_ms + retain_for, -1));
                                     }
-                                    // Refresh the metadata's lease on life: (create an entry if
+                                    // Refresh the metadata's lease on life (create an entry if
                                     // it's missing, and ensure our accounting is correct if it
                                     // exists):
-                                    let meta = metric.meta;
                                     if active_metrics
                                         .insert(meta.clone(), time_ms + retain_for)
                                         .is_none()

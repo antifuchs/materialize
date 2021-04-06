@@ -67,8 +67,6 @@ fn convert_metrics_to_rows<'a, M: IntoIterator<Item = &'a prometheus::proto::Met
                     Some(MetricReading::new(
                         labels,
                         MetricValue::Histogram {
-                            sum: histo.get_sample_sum(),
-                            total_count: histo.get_sample_count() as i64,
                             counts: histo
                                 .get_bucket()
                                 .iter()
