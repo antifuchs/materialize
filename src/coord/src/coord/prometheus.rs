@@ -7,6 +7,8 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0.
 
+//! A task that scrapes materialized's prometheus metrics and sends them to our logging tables.
+
 use std::{
     convert::TryInto,
     thread,
@@ -112,10 +114,10 @@ impl<'a> Scraper<'a> {
             thread::sleep(self.interval);
             let timestamp: Timestamp = UNIX_EPOCH
                 .elapsed()
-                .expect("system clock before 1970")
+                .expect("system clock is recent enough")
                 .as_millis()
                 .try_into()
-                .expect("materialize has existed for >500M years");
+                .expect("materialized is younger than 550M years.");
             if let Ok(cmd) = self.command_rx.try_recv() {
                 match cmd {
                     ScraperMessage::Shutdown => return,
