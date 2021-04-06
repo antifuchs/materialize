@@ -451,20 +451,30 @@ pub fn construct<A: Allocate>(
                                         session.give((row.clone(), time_ms, 1));
                                         session.give((row, time_ms + retain_for, -1));
                                     }
-                                    // Expire the metadata of a metric reading when the reading
-                                    // would expire, but refresh its lifetime when we get another
-                                    // reading referencing that metadata:
+                                    // Refresh the metadata's lease on life: (create an entry if
+                                    // it's missing, and ensure our accounting is correct if it
+                                    // exists):
                                     let meta = metric.meta;
-                                    let meta_expiry =
-                                        active_metrics.get(&meta).copied().unwrap_or(0);
-                                    if meta_expiry <= time_ms {
-                                        let row = meta.as_packed_row();
-                                        metrics_meta_session.give((row.clone(), time_ms, 1));
-                                        metrics_meta_session.give((row, time_ms + retain_for, -1));
-                                        active_metrics
-                                            .insert(meta, time_ms + retain_for as Timestamp);
+                                    if active_metrics
+                                        .insert(meta.clone(), time_ms + retain_for)
+                                        .is_none()
+                                    {
+                                        metrics_meta_session.give((
+                                            meta.as_packed_row(),
+                                            time_ms,
+                                            1,
+                                        ));
                                     }
                                 }
+                                // Expire any metadata entries whose corresponding metrics may have
+                                // gone away:
+                                active_metrics
+                                    .iter()
+                                    .filter(|(_, &expiry)| expiry <= time_ms)
+                                    .map(|(meta, _)| meta.as_packed_row())
+                                    .for_each(|row| metrics_meta_session.give((row, time_ms, -1)));
+
+                                active_metrics.retain(|_, &mut expiry| expiry > time_ms);
                             }
                         }
                     }
