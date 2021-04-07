@@ -81,15 +81,6 @@ pub enum MaterializedEvent {
         /// Difference between the previous timestamp and current highest timestamp we've seen
         timestamp: i64,
     },
-    /// A batch of metrics scraped from prometheus.
-    PrometheusMetrics {
-        /// timestamp in millis from UNIX epoch at which these metrics were scraped.
-        timestamp: u64,
-        /// duration in millis when this batch of metrics gets invalidated.
-        retain_for: u64,
-        /// The metrics that were scraped from the registry.
-        metrics: Vec<Metric>,
-    },
     /// Available frontier information for views.
     Frontier(GlobalId, Timestamp, i64),
 }
@@ -111,112 +102,6 @@ impl Peek {
     /// Create a new peek from its arguments.
     pub fn new(id: GlobalId, time: Timestamp, conn_id: u32) -> Self {
         Self { id, time, conn_id }
-    }
-}
-
-/// A prometheus value's meaning.
-///
-/// This is straightforward for gauges and counters (which have only one meaning), but histograms
-/// and summaries can require multiple values to express their meanings correctly.
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
-pub enum MetricValue {
-    /// A prometheus counter or gauge's current value
-    Value(f64),
-    /// A prometheus histogram as a set of values
-    Histogram {
-        /// The upper bounds of the histogram buckets (cumulative).
-        bounds: Vec<f64>,
-        /// The count of events in each histogram bucket.
-        counts: Vec<i64>,
-    },
-}
-
-/// The kind of a prometheus metric in a batch of metrics
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
-pub enum MetricType {
-    /// A prometheus counter
-    Counter,
-    /// A prometheus gauge
-    Gauge,
-    /// A prometheus summary
-    Summary,
-    /// A prometheus histogram
-    Histogram,
-    /// An untyped metric
-    Untyped,
-}
-
-impl MetricType {
-    fn as_str(&self) -> &'static str {
-        use MetricType::*;
-        match self {
-            Counter => "counter",
-            Gauge => "gauge",
-            Summary => "summary",
-            Histogram => "histogram",
-            Untyped => "untyped",
-        }
-    }
-}
-
-impl From<prometheus::proto::MetricType> for MetricType {
-    fn from(f: prometheus::proto::MetricType) -> Self {
-        use prometheus::proto::MetricType::*;
-        match f {
-            COUNTER => MetricType::Counter,
-            GAUGE => MetricType::Gauge,
-            SUMMARY => MetricType::Summary,
-            HISTOGRAM => MetricType::Histogram,
-
-            UNTYPED => MetricType::Untyped,
-        }
-    }
-}
-
-/// A prometheus metric, identified by its name and its associated readings.
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
-pub struct Metric {
-    meta: MetricMeta,
-    readings: Vec<MetricReading>,
-}
-
-impl Metric {
-    /// Construct a new prometheus Metric.
-    pub fn new(name: String, kind: MetricType, help: String, readings: Vec<MetricReading>) -> Self {
-        let meta = MetricMeta { name, kind, help };
-        Self { meta, readings }
-    }
-}
-
-/// Information about the prometheus metric.
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
-pub struct MetricMeta {
-    name: String,
-    kind: MetricType,
-    help: String,
-}
-
-impl MetricMeta {
-    fn as_packed_row(&self) -> repr::Row {
-        Row::pack_slice(&[
-            Datum::from(self.name.as_str()),
-            Datum::from(self.kind.as_str()),
-            Datum::from(self.help.as_str()),
-        ])
-    }
-}
-
-/// A metric reading at a time for a set of labels.
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
-pub struct MetricReading {
-    labels: Vec<(String, String)>,
-    value: MetricValue,
-}
-
-impl MetricReading {
-    /// Construct a new metric reading with the given labels and a value.
-    pub fn new(labels: Vec<(String, String)>, value: MetricValue) -> Self {
-        Self { labels, value }
     }
 }
 
@@ -253,7 +138,6 @@ pub fn construct<A: Allocate>(
 
         let mut demux_buffer = Vec::new();
         demux.build(move |_capability| {
-            let mut active_metrics = std::collections::HashMap::<MetricMeta, Timestamp>::new();
             let mut active_dataflows = std::collections::HashMap::new();
             move |_frontiers| {
                 let mut dataflow = dataflow_out.activate();
@@ -379,84 +263,6 @@ pub fn construct<A: Allocate>(
                                     (offset, timestamp),
                                 ));
                             }
-                            MaterializedEvent::PrometheusMetrics {
-                                metrics,
-                                timestamp,
-                                retain_for,
-                            } => {} // {
-                                    //     let chrono_timestamp = chrono::NaiveDateTime::from_timestamp(0, 0)
-                                    //         + chrono::Duration::from_std(Duration::from_millis(timestamp))
-                                    //             .expect("Couldn't convert timestamps");
-                                    //     let mut row_packer = Row::default();
-                                    //     for metric in metrics {
-                                    //         let meta = metric.meta;
-
-                                    //         for reading in metric.readings {
-                                    //             let labels = reading.labels.iter().map(|(name, value)| {
-                                    //                 (name.as_str(), Datum::from(value.as_str()))
-                                    //             });
-                                    //             match reading.value {
-                                    //                 MetricValue::Value(v) => {
-                                    //                     row_packer.push(Datum::from(meta.name.as_str()));
-                                    //                     row_packer.push(Datum::from(chrono_timestamp));
-                                    //                     row_packer.push_dict(labels);
-                                    //                     row_packer.push(Datum::from(v));
-                                    //                     let row = row_packer.finish_and_reuse();
-                                    //                     metrics_session.give((row.clone(), time_ms, 1));
-                                    //                     metrics_session.give((
-                                    //                         row,
-                                    //                         time_ms + retain_for,
-                                    //                         -1,
-                                    //                     ));
-                                    //                 }
-                                    //                 MetricValue::Histogram { bounds, counts } => bounds
-                                    //                     .iter()
-                                    //                     .zip(counts.iter())
-                                    //                     .for_each(|(&bound, &count)| {
-                                    //                         row_packer
-                                    //                             .push(Datum::from(meta.name.as_str()));
-                                    //                         row_packer.push(Datum::from(chrono_timestamp));
-                                    //                         row_packer.push_dict(labels.clone());
-                                    //                         row_packer.push(Datum::from(bound));
-                                    //                         row_packer.push(Datum::from(count));
-                                    //                         let row = row_packer.finish_and_reuse();
-                                    //                         metrics_histos_session.give((
-                                    //                             row.clone(),
-                                    //                             time_ms,
-                                    //                             1,
-                                    //                         ));
-                                    //                         metrics_histos_session.give((
-                                    //                             row,
-                                    //                             time_ms + retain_for,
-                                    //                             -1,
-                                    //                         ));
-                                    //                     }),
-                                    //             };
-                                    //         }
-                                    //         // Refresh the metadata's lease on life (create an entry if
-                                    //         // it's missing, and ensure our accounting is correct if it
-                                    //         // exists):
-                                    //         if active_metrics
-                                    //             .insert(meta.clone(), time_ms + retain_for)
-                                    //             .is_none()
-                                    //         {
-                                    //             metrics_meta_session.give((
-                                    //                 meta.as_packed_row(),
-                                    //                 time_ms,
-                                    //                 1,
-                                    //             ));
-                                    //         }
-                                    //     }
-                                    //     // Expire any metadata entries whose corresponding metrics may have
-                                    //     // gone away:
-                                    //     active_metrics
-                                    //         .iter()
-                                    //         .filter(|(_, &expiry)| expiry <= time_ms)
-                                    //         .map(|(meta, _)| meta.as_packed_row())
-                                    //         .for_each(|row| metrics_meta_session.give((row, time_ms, -1)));
-
-                                    //     active_metrics.retain(|_, &mut expiry| expiry > time_ms);
-                                    // }
                         }
                     }
                 });

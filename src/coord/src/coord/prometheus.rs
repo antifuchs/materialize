@@ -11,16 +11,11 @@
 
 use std::{
     convert::TryInto,
-    iter::FromIterator,
     thread,
     time::{Duration, UNIX_EPOCH},
 };
 
 use chrono::NaiveDateTime;
-use dataflow::{
-    logging::materialized::{MaterializedEvent, Metric, MetricReading, MetricValue},
-    SequencedCommand,
-};
 use prometheus::{proto::MetricType, Registry};
 use repr::{Datum, Row, Timestamp};
 use tokio::sync::mpsc::UnboundedSender;
@@ -45,125 +40,68 @@ pub enum ScraperMessage {
     Shutdown,
 }
 
-/// The kind of a prometheus metric in a batch of metrics
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
-enum MetricKind {
-    /// A prometheus counter
-    Counter,
-    /// A prometheus gauge
-    Gauge,
-    /// A prometheus summary
-    Summary,
-    /// A prometheus histogram
-    Histogram,
-    /// An untyped metric
-    Untyped,
-}
-
-impl MetricKind {
-    fn as_str(&self) -> &'static str {
-        use MetricKind::*;
-        match self {
-            Counter => "counter",
-            Gauge => "gauge",
-            Summary => "summary",
-            Histogram => "histogram",
-            Untyped => "untyped",
-        }
-    }
-}
-
-impl From<prometheus::proto::MetricType> for MetricKind {
-    fn from(f: prometheus::proto::MetricType) -> Self {
-        use prometheus::proto::MetricType::*;
-        match f {
-            COUNTER => MetricKind::Counter,
-            GAUGE => MetricKind::Gauge,
-            SUMMARY => MetricKind::Summary,
-            HISTOGRAM => MetricKind::Histogram,
-
-            UNTYPED => MetricKind::Untyped,
-        }
-    }
-}
-
-/// Information about the prometheus metric.
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Ord, Hash)]
-struct MetricMeta {
-    name: String,
-    kind: MetricKind,
-    help: String,
-}
-
-impl MetricMeta {
-    fn as_packed_row(&self) -> repr::Row {
-        Row::pack_slice(&[
-            Datum::from(self.name.as_str()),
-            Datum::from(self.kind.as_str()),
-            Datum::from(self.help.as_str()),
-        ])
-    }
-}
-
-fn convert_metrics_to_value_rows<'a, M: IntoIterator<Item = &'a prometheus::proto::Metric>>(
-    name: &'a str,
+fn convert_metrics_to_value_rows<
+    'a,
+    M: IntoIterator<Item = &'a prometheus::proto::MetricFamily>,
+>(
     timestamp: NaiveDateTime,
-    kind: MetricType,
-    metrics: M,
+    families: M,
 ) -> Vec<Row> {
     let mut row_packer = Row::default();
-    metrics
-        .into_iter()
-        .flat_map(|m| {
-            use MetricType::*;
-            let labels: Vec<_> = m
+    let mut rows: Vec<Row> = vec![];
+
+    for fam in families {
+        let kind = fam.get_field_type();
+        if kind != MetricType::COUNTER && kind != MetricType::GAUGE {
+            continue;
+        }
+
+        for metric in fam.get_metric() {
+            let labels: Vec<_> = metric
                 .get_label()
                 .into_iter()
                 .map(|pair| (pair.get_name(), Datum::from(pair.get_value())))
                 .collect();
-            match kind {
-                COUNTER => {
-                    row_packer.push(Datum::from(name));
-                    row_packer.push(Datum::from(timestamp));
-                    row_packer.push_dict(labels);
-                    row_packer.push(Datum::from(m.get_counter().get_value()));
-                    Some(row_packer.finish_and_reuse())
-                }
-                GAUGE => {
-                    row_packer.push(Datum::from(name));
-                    row_packer.push(Datum::from(timestamp));
-                    row_packer.push_dict(labels);
-                    row_packer.push(Datum::from(m.get_gauge().get_value()));
-                    Some(row_packer.finish_and_reuse())
-                }
-                _ => None,
-            }
-        })
-        .collect()
+            row_packer.push(Datum::from(fam.get_name()));
+            row_packer.push(Datum::from(timestamp));
+            row_packer.push_dict(labels.iter().copied());
+            row_packer.push(Datum::from(match kind {
+                MetricType::COUNTER => metric.get_counter().get_value(),
+                MetricType::GAUGE => metric.get_gauge().get_value(),
+                _ => unreachable!("never hit for anything other than gauges & counters"),
+            }));
+            rows.push(row_packer.finish_and_reuse());
+        }
+    }
+    rows
 }
 
-fn convert_metrics_to_histogram_rows<'a, M: IntoIterator<Item = &'a prometheus::proto::Metric>>(
-    name: &'a str,
+fn convert_metrics_to_histogram_rows<
+    'a,
+    M: IntoIterator<Item = &'a prometheus::proto::MetricFamily>,
+>(
     timestamp: NaiveDateTime,
-    kind: MetricType,
-    metrics: M,
+    families: M,
 ) -> Vec<Row> {
     let mut row_packer = Row::default();
     let mut rows: Vec<Row> = vec![];
-    for metric in metrics {
-        let labels: Vec<_> = metric
-            .get_label()
-            .into_iter()
-            .map(|pair| (pair.get_name(), Datum::from(pair.get_value())))
-            .collect();
-        if kind == MetricType::HISTOGRAM {
-            for bucket in metric.get_histogram().get_bucket() {
-                row_packer.push(Datum::from(name));
-                row_packer.push(Datum::from(timestamp));
-                row_packer.push_dict(labels.iter().copied());
-                row_packer.push(Datum::from(bucket.get_upper_bound()));
-                row_packer.push(Datum::from(bucket.get_cumulative_count() as i64));
-                rows.push(row_packer.finish_and_reuse());
+    for fam in families {
+        let name = fam.get_name();
+        for metric in fam.get_metric() {
+            let labels: Vec<_> = metric
+                .get_label()
+                .into_iter()
+                .map(|pair| (pair.get_name(), Datum::from(pair.get_value())))
+                .collect();
+            if fam.get_field_type() == MetricType::HISTOGRAM {
+                for bucket in metric.get_histogram().get_bucket() {
+                    row_packer.push(Datum::from(name));
+                    row_packer.push(Datum::from(timestamp));
+                    row_packer.push_dict(labels.iter().copied());
+                    row_packer.push(Datum::from(bucket.get_upper_bound()));
+                    row_packer.push(Datum::from(bucket.get_cumulative_count() as i64));
+                    rows.push(row_packer.finish_and_reuse());
+                }
             }
         }
     }
@@ -210,30 +148,11 @@ impl<'a> Scraper<'a> {
                     .expect("Couldn't convert timestamps");
             let metric_fams = self.registry.gather();
 
-            let value_readings: Vec<Row> = metric_fams
-                .iter()
-                .flat_map(|family| {
-                    convert_metrics_to_value_rows(
-                        family.get_name(),
-                        timestamp,
-                        family.get_field_type().into(),
-                        family.get_metric().into_iter(),
-                    )
-                })
-                .collect();
+            let value_readings = convert_metrics_to_value_rows(timestamp, metric_fams.iter());
             self.send_expiring_update(&MZ_PROMETHEUS_READINGS, value_readings);
 
-            let histo_readings: Vec<Row> = metric_fams
-                .iter()
-                .flat_map(|family| {
-                    convert_metrics_to_histogram_rows(
-                        family.get_name(),
-                        timestamp,
-                        family.get_field_type().into(),
-                        family.get_metric().into_iter(),
-                    )
-                })
-                .collect();
+            let histo_readings: Vec<Row> =
+                convert_metrics_to_histogram_rows(timestamp, metric_fams.iter());
             self.send_expiring_update(&MZ_PROMETHEUS_HISTOGRAMS, histo_readings);
         }
     }
