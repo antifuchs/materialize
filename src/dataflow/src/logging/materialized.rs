@@ -248,9 +248,6 @@ pub fn construct<A: Allocate>(
         let (mut dependency_out, dependency) = demux.new_output();
         let (mut frontier_out, frontier) = demux.new_output();
         let (mut kafka_consumer_info_out, kafka_consumer_info) = demux.new_output();
-        let (mut metrics_out, metrics) = demux.new_output();
-        let (mut metrics_histos_out, metrics_histos) = demux.new_output();
-        let (mut metrics_meta_out, metrics_meta) = demux.new_output();
         let (mut peek_out, peek) = demux.new_output();
         let (mut source_info_out, source_info) = demux.new_output();
 
@@ -263,9 +260,6 @@ pub fn construct<A: Allocate>(
                 let mut dependency = dependency_out.activate();
                 let mut frontier = frontier_out.activate();
                 let mut kafka_consumer_info = kafka_consumer_info_out.activate();
-                let mut metrics = metrics_out.activate();
-                let mut metrics_histos = metrics_histos_out.activate();
-                let mut metrics_meta = metrics_meta_out.activate();
                 let mut peek = peek_out.activate();
                 let mut source_info = source_info_out.activate();
 
@@ -276,9 +270,6 @@ pub fn construct<A: Allocate>(
                     let mut dependency_session = dependency.session(&time);
                     let mut frontier_session = frontier.session(&time);
                     let mut kafka_consumer_info_session = kafka_consumer_info.session(&time);
-                    let mut metrics_session = metrics.session(&time);
-                    let mut metrics_histos_session = metrics_histos.session(&time);
-                    let mut metrics_meta_session = metrics_meta.session(&time);
                     let mut peek_session = peek.session(&time);
                     let mut source_info_session = source_info.session(&time);
 
@@ -392,80 +383,80 @@ pub fn construct<A: Allocate>(
                                 metrics,
                                 timestamp,
                                 retain_for,
-                            } => {
-                                let chrono_timestamp = chrono::NaiveDateTime::from_timestamp(0, 0)
-                                    + chrono::Duration::from_std(Duration::from_millis(timestamp))
-                                        .expect("Couldn't convert timestamps");
-                                let mut row_packer = Row::default();
-                                for metric in metrics {
-                                    let meta = metric.meta;
+                            } => {} // {
+                                    //     let chrono_timestamp = chrono::NaiveDateTime::from_timestamp(0, 0)
+                                    //         + chrono::Duration::from_std(Duration::from_millis(timestamp))
+                                    //             .expect("Couldn't convert timestamps");
+                                    //     let mut row_packer = Row::default();
+                                    //     for metric in metrics {
+                                    //         let meta = metric.meta;
 
-                                    for reading in metric.readings {
-                                        let labels = reading.labels.iter().map(|(name, value)| {
-                                            (name.as_str(), Datum::from(value.as_str()))
-                                        });
-                                        match reading.value {
-                                            MetricValue::Value(v) => {
-                                                row_packer.push(Datum::from(meta.name.as_str()));
-                                                row_packer.push(Datum::from(chrono_timestamp));
-                                                row_packer.push_dict(labels);
-                                                row_packer.push(Datum::from(v));
-                                                let row = row_packer.finish_and_reuse();
-                                                metrics_session.give((row.clone(), time_ms, 1));
-                                                metrics_session.give((
-                                                    row,
-                                                    time_ms + retain_for,
-                                                    -1,
-                                                ));
-                                            }
-                                            MetricValue::Histogram { bounds, counts } => bounds
-                                                .iter()
-                                                .zip(counts.iter())
-                                                .for_each(|(&bound, &count)| {
-                                                    row_packer
-                                                        .push(Datum::from(meta.name.as_str()));
-                                                    row_packer.push(Datum::from(chrono_timestamp));
-                                                    row_packer.push_dict(labels.clone());
-                                                    row_packer.push(Datum::from(bound));
-                                                    row_packer.push(Datum::from(count));
-                                                    let row = row_packer.finish_and_reuse();
-                                                    metrics_histos_session.give((
-                                                        row.clone(),
-                                                        time_ms,
-                                                        1,
-                                                    ));
-                                                    metrics_histos_session.give((
-                                                        row,
-                                                        time_ms + retain_for,
-                                                        -1,
-                                                    ));
-                                                }),
-                                        };
-                                    }
-                                    // Refresh the metadata's lease on life (create an entry if
-                                    // it's missing, and ensure our accounting is correct if it
-                                    // exists):
-                                    if active_metrics
-                                        .insert(meta.clone(), time_ms + retain_for)
-                                        .is_none()
-                                    {
-                                        metrics_meta_session.give((
-                                            meta.as_packed_row(),
-                                            time_ms,
-                                            1,
-                                        ));
-                                    }
-                                }
-                                // Expire any metadata entries whose corresponding metrics may have
-                                // gone away:
-                                active_metrics
-                                    .iter()
-                                    .filter(|(_, &expiry)| expiry <= time_ms)
-                                    .map(|(meta, _)| meta.as_packed_row())
-                                    .for_each(|row| metrics_meta_session.give((row, time_ms, -1)));
+                                    //         for reading in metric.readings {
+                                    //             let labels = reading.labels.iter().map(|(name, value)| {
+                                    //                 (name.as_str(), Datum::from(value.as_str()))
+                                    //             });
+                                    //             match reading.value {
+                                    //                 MetricValue::Value(v) => {
+                                    //                     row_packer.push(Datum::from(meta.name.as_str()));
+                                    //                     row_packer.push(Datum::from(chrono_timestamp));
+                                    //                     row_packer.push_dict(labels);
+                                    //                     row_packer.push(Datum::from(v));
+                                    //                     let row = row_packer.finish_and_reuse();
+                                    //                     metrics_session.give((row.clone(), time_ms, 1));
+                                    //                     metrics_session.give((
+                                    //                         row,
+                                    //                         time_ms + retain_for,
+                                    //                         -1,
+                                    //                     ));
+                                    //                 }
+                                    //                 MetricValue::Histogram { bounds, counts } => bounds
+                                    //                     .iter()
+                                    //                     .zip(counts.iter())
+                                    //                     .for_each(|(&bound, &count)| {
+                                    //                         row_packer
+                                    //                             .push(Datum::from(meta.name.as_str()));
+                                    //                         row_packer.push(Datum::from(chrono_timestamp));
+                                    //                         row_packer.push_dict(labels.clone());
+                                    //                         row_packer.push(Datum::from(bound));
+                                    //                         row_packer.push(Datum::from(count));
+                                    //                         let row = row_packer.finish_and_reuse();
+                                    //                         metrics_histos_session.give((
+                                    //                             row.clone(),
+                                    //                             time_ms,
+                                    //                             1,
+                                    //                         ));
+                                    //                         metrics_histos_session.give((
+                                    //                             row,
+                                    //                             time_ms + retain_for,
+                                    //                             -1,
+                                    //                         ));
+                                    //                     }),
+                                    //             };
+                                    //         }
+                                    //         // Refresh the metadata's lease on life (create an entry if
+                                    //         // it's missing, and ensure our accounting is correct if it
+                                    //         // exists):
+                                    //         if active_metrics
+                                    //             .insert(meta.clone(), time_ms + retain_for)
+                                    //             .is_none()
+                                    //         {
+                                    //             metrics_meta_session.give((
+                                    //                 meta.as_packed_row(),
+                                    //                 time_ms,
+                                    //                 1,
+                                    //             ));
+                                    //         }
+                                    //     }
+                                    //     // Expire any metadata entries whose corresponding metrics may have
+                                    //     // gone away:
+                                    //     active_metrics
+                                    //         .iter()
+                                    //         .filter(|(_, &expiry)| expiry <= time_ms)
+                                    //         .map(|(meta, _)| meta.as_packed_row())
+                                    //         .for_each(|row| metrics_meta_session.give((row, time_ms, -1)));
 
-                                active_metrics.retain(|_, &mut expiry| expiry > time_ms);
-                            }
+                                    //     active_metrics.retain(|_, &mut expiry| expiry > time_ms);
+                                    // }
                         }
                     }
                 });
@@ -528,10 +519,6 @@ pub fn construct<A: Allocate>(
                 ])
             }
         });
-
-        let metrics_current = metrics.as_collection();
-        let metrics_histos_current = metrics_histos.as_collection();
-        let metrics_meta_current = metrics_meta.as_collection();
 
         let peek_current = peek
             .map(move |(name, worker, is_install, time_ns)| {
@@ -644,18 +631,6 @@ pub fn construct<A: Allocate>(
             (
                 LogVariant::Materialized(MaterializedLog::KafkaConsumerInfo),
                 kafka_consumer_info_current,
-            ),
-            (
-                LogVariant::Materialized(MaterializedLog::MetricValues),
-                metrics_current,
-            ),
-            (
-                LogVariant::Materialized(MaterializedLog::MetricHistograms),
-                metrics_histos_current,
-            ),
-            (
-                LogVariant::Materialized(MaterializedLog::MetricsMeta),
-                metrics_meta_current,
             ),
             (
                 LogVariant::Materialized(MaterializedLog::PeekCurrent),

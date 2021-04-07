@@ -122,30 +122,30 @@ impl<'a> Scraper<'a> {
                 }
             }
 
-            let metric_fams = self.registry.gather();
-            let metrics = metric_fams
-                .into_iter()
-                .map(|family| {
-                    Metric::new(
-                        family.get_name().to_string(),
-                        family.get_field_type().into(),
-                        family.get_help().to_string(),
-                        convert_metrics_to_rows(
-                            family.get_field_type(),
-                            family.get_metric().into_iter(),
-                        ),
-                    )
-                })
-                .collect();
-            self.internal_tx
-                .send(Message::Broadcast(SequencedCommand::ReportMaterializedLog(
-                    MaterializedEvent::PrometheusMetrics {
-                        timestamp,
-                        retain_for,
-                        metrics,
-                    },
-                )))
-                .expect("Couldn't send");
+            let _metric_fams = self.registry.gather();
+            // let _metrics = metric_fams
+            //     .into_iter()
+            //     .map(|family| {
+            //         Metric::new(
+            //             family.get_name().to_string(),
+            //             family.get_field_type().into(),
+            //             family.get_help().to_string(),
+            //             convert_metrics_to_rows(
+            //                 family.get_field_type(),
+            //                 family.get_metric().into_iter(),
+            //             ),
+            //         )
+            //     })
+            //     .collect();
+            // self.internal_tx
+            //     .send(Message::Broadcast(SequencedCommand::ReportMaterializedLog(
+            //         MaterializedEvent::PrometheusMetrics {
+            //             timestamp,
+            //             retain_for,
+            //             metrics,
+            //         },
+            //     )))
+            //     .expect("Couldn't send");
         }
     }
 }

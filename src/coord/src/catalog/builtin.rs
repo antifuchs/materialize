@@ -562,30 +562,6 @@ pub const MZ_KAFKA_CONSUMER_STATISTICS: BuiltinLog = BuiltinLog {
     index_id: GlobalId::System(3031),
 };
 
-pub const MZ_PROMETHEUS_READINGS: BuiltinLog = BuiltinLog {
-    name: "mz_metrics",
-    schema: MZ_CATALOG_SCHEMA,
-    variant: LogVariant::Materialized(MaterializedLog::MetricValues),
-    id: GlobalId::System(3032),
-    index_id: GlobalId::System(3033),
-};
-
-pub const MZ_PROMETHEUS_HISTOGRAMS: BuiltinLog = BuiltinLog {
-    name: "mz_metric_histograms",
-    schema: MZ_CATALOG_SCHEMA,
-    variant: LogVariant::Materialized(MaterializedLog::MetricHistograms),
-    id: GlobalId::System(3034),
-    index_id: GlobalId::System(3035),
-};
-
-pub const MZ_PROMETHEUS_METRICS: BuiltinLog = BuiltinLog {
-    name: "mz_metrics_meta",
-    schema: MZ_CATALOG_SCHEMA,
-    variant: LogVariant::Materialized(MaterializedLog::MetricsMeta),
-    id: GlobalId::System(3036),
-    index_id: GlobalId::System(3037),
-};
-
 lazy_static! {
     pub static ref MZ_VIEW_KEYS: BuiltinTable = BuiltinTable {
         name: "mz_view_keys",
@@ -792,8 +768,8 @@ lazy_static! {
         schema: MZ_CATALOG_SCHEMA,
         desc: RelationDesc::empty()
             .with_column("type_id", ScalarType::String.nullable(false)),
-            id: GlobalId::System(4039),
-            index_id: GlobalId::System(4040),
+        id: GlobalId::System(4039),
+        index_id: GlobalId::System(4040),
     };
     pub static ref MZ_FUNCTIONS: BuiltinTable = BuiltinTable {
         name: "mz_functions",
@@ -805,8 +781,44 @@ lazy_static! {
             .with_column("name", ScalarType::String.nullable(false))
             .with_column("arg_ids", ScalarType::Array(Box::new(ScalarType::String)).nullable(false))
             .with_column("variadic_id", ScalarType::String.nullable(true)),
-            id: GlobalId::System(4041),
-            index_id: GlobalId::System(4042),
+        id: GlobalId::System(4041),
+        index_id: GlobalId::System(4042),
+    };
+    pub static ref MZ_PROMETHEUS_READINGS: BuiltinTable = BuiltinTable {
+        name: "mz_metrics",
+        schema: MZ_CATALOG_SCHEMA,
+        desc: RelationDesc::empty()
+                .with_column("metric", ScalarType::String.nullable(false))
+                .with_column("time", ScalarType::Timestamp.nullable(false))
+                .with_column("labels", ScalarType::Jsonb.nullable(false))
+                .with_column("value", ScalarType::Float64.nullable(false))
+                .with_key(vec![0, 1, 2]),
+        id: GlobalId::System(4043),
+        index_id: GlobalId::System(4044),
+    };
+    pub static ref MZ_PROMETHEUS_METRICS: BuiltinTable = BuiltinTable {
+        name: "mz_metrics_meta",
+        schema: MZ_CATALOG_SCHEMA,
+        desc: RelationDesc::empty()
+                .with_column("metric", ScalarType::String.nullable(false))
+                .with_column("type", ScalarType::String.nullable(false))
+                .with_column("help", ScalarType::String.nullable(false))
+                .with_key(vec![0]),
+        id: GlobalId::System(4045),
+        index_id: GlobalId::System(4046),
+    };
+    pub static ref MZ_PROMETHEUS_HISTOGRAMS: BuiltinTable = BuiltinTable {
+        name: "mz_metric_histograms",
+        schema: MZ_CATALOG_SCHEMA,
+        desc: RelationDesc::empty()
+                .with_column("metric", ScalarType::String.nullable(false))
+                .with_column("time", ScalarType::Timestamp.nullable(false))
+                .with_column("labels", ScalarType::Jsonb.nullable(false))
+                .with_column("bound", ScalarType::Float64.nullable(false))
+                .with_column("count", ScalarType::Int64.nullable(false))
+                .with_key(vec![0, 1, 2]),
+        id: GlobalId::System(4047),
+        index_id: GlobalId::System(4048),
     };
 }
 
@@ -1304,9 +1316,6 @@ lazy_static! {
             Builtin::Log(&MZ_SOURCE_INFO),
             Builtin::Log(&MZ_MESSAGE_COUNTS),
             Builtin::Log(&MZ_KAFKA_CONSUMER_STATISTICS),
-            Builtin::Log(&MZ_PROMETHEUS_READINGS),
-            Builtin::Log(&MZ_PROMETHEUS_HISTOGRAMS),
-            Builtin::Log(&MZ_PROMETHEUS_METRICS),
             Builtin::Table(&MZ_VIEW_KEYS),
             Builtin::Table(&MZ_VIEW_FOREIGN_KEYS),
             Builtin::Table(&MZ_KAFKA_SINKS),
@@ -1328,6 +1337,9 @@ lazy_static! {
             Builtin::Table(&MZ_ROLES),
             Builtin::Table(&MZ_PSEUDO_TYPES),
             Builtin::Table(&MZ_FUNCTIONS),
+            Builtin::Table(&MZ_PROMETHEUS_READINGS),
+            Builtin::Table(&MZ_PROMETHEUS_HISTOGRAMS),
+            Builtin::Table(&MZ_PROMETHEUS_METRICS),
             Builtin::View(&MZ_RELATIONS),
             Builtin::View(&MZ_OBJECTS),
             Builtin::View(&MZ_CATALOG_NAMES),
