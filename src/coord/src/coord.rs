@@ -107,7 +107,7 @@ pub enum Message {
     AdvanceSourceTimestamp(AdvanceSourceTimestamp),
     StatementReady(StatementReady),
     SinkConnectorReady(SinkConnectorReady),
-    Broadcast(SequencedCommand),
+    InsertCatalogUpdates(CatalogViewUpdate),
     Shutdown,
 }
 
@@ -136,6 +136,13 @@ pub struct SinkConnectorReady {
     pub id: GlobalId,
     pub oid: u32,
     pub result: Result<SinkConnector, CoordError>,
+}
+
+#[derive(Debug)]
+pub struct CatalogViewUpdate {
+    pub index_id: GlobalId,
+    pub updates: Vec<(Row, isize)>,
+    pub timestamp_offset: u64,
 }
 
 /// Configures dataflow worker logging.
@@ -465,7 +472,9 @@ impl Coordinator {
                 Message::AdvanceSourceTimestamp(advance) => {
                     self.message_advance_source_timestamp(advance).await
                 }
-                Message::Broadcast(cmd) => self.broadcast(cmd),
+                Message::InsertCatalogUpdates(update) => {
+                    self.update_catalog_view_from_message(update).await
+                }
                 Message::Shutdown => {
                     self.message_shutdown().await;
                     break;
@@ -1100,20 +1109,48 @@ impl Coordinator {
         self.ship_dataflow(df).await
     }
 
-    /// Insert a single row into a given catalog view.
+    /// Insert rows into a given catalog view.
     async fn update_catalog_view<I>(&mut self, index_id: GlobalId, updates: I)
     where
         I: IntoIterator<Item = (Row, isize)>,
     {
         let timestamp = self.get_write_ts();
-        let updates = updates
-            .into_iter()
-            .map(|(row, diff)| Update {
+        self.insert_catalog_view_updates(
+            index_id,
+            updates.into_iter().map(|(row, diff)| Update {
                 row,
                 diff,
                 timestamp,
-            })
-            .collect();
+            }),
+        )
+        .await
+    }
+
+    async fn update_catalog_view_from_message(&mut self, update: CatalogViewUpdate) {
+        let timestamp = self.get_write_ts() + update.timestamp_offset;
+        self.insert_catalog_view_updates(
+            update.index_id,
+            update.updates.into_iter().map(|(row, diff)| Update {
+                row,
+                diff,
+                timestamp,
+            }),
+        )
+        .await
+    }
+
+    /// Insert rows into a given catalog view, provided as Updates with caller-provided timestamps
+    /// (which must be greater or equal to the current write ts).
+    ///
+    /// # Safety
+    /// This method will use unchecked whatever timestamps are given to it, and they might be
+    /// arbitrarily before the read timestamp in the coordinator. Take care to only use timestamps
+    /// at or after the coordinator's current write timestamp.
+    async fn insert_catalog_view_updates<I>(&mut self, index_id: GlobalId, updates: I)
+    where
+        I: IntoIterator<Item = Update>,
+    {
+        let updates = updates.into_iter().collect();
         self.broadcast(SequencedCommand::Insert {
             id: index_id,
             updates,
