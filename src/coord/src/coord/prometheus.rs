@@ -169,7 +169,7 @@ impl<'a> Scraper<'a> {
             .send(Message::InsertCatalogUpdates(CatalogViewUpdate {
                 index_id: table.id,
                 timestamp_offset: self.retain_for,
-                updates: updates.iter().cloned().map(|metric| (metric, -1)).collect(),
+                updates: updates.into_iter().map(|metric| (metric, -1)).collect(),
             }))
             .expect("Sending metric reading retraction messages");
     }
